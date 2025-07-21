@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football Player Chain Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚽ Football Player Chain Game</h1>
+            <p class="subtitle">Connect players through their clubs!</p>
+        </header>
+
+        <div class="game-area">
+            <div class="score-board">
+                <div class="score">Current Score: <span id="score">0</span></div>
+                <div class="best-score">Best Score: <span id="best-score">0</span></div>
+                <div class="chain-length">Chain: <span id="chain-length">0</span></div>
+            </div>
+
+            <div class="game-state" id="game-state">
+                <div class="current-player">
+                    <h2>Current Player:</h2>
+                    <div class="player-card">
+                        <div class="player-name" id="current-player">Lionel Messi</div>
+                        <div class="player-info" id="player-info">🇦🇷 Forward</div>
+                        <div class="club-info" id="club-info" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <div class="game-phase" id="game-phase">
+                    <div class="phase-indicator">
+                        <span class="phase-text" id="phase-text">Guess the club this player has played for:</span>
+                    </div>
+                    
+                    <div class="input-section">
+                        <div class="input-container">
+                            <input 
+                                type="text" 
+                                id="user-input" 
+                                placeholder="Enter club name..." 
+                                autocomplete="off"
+                            >
+                            <div class="suggestions" id="suggestions"></div>
+                        </div>
+                        <button id="submit-btn" onclick="submitAnswer()">Submit</button>
+                    </div>
+                    
+                    <div class="hint-section" id="hint-section" style="display: none;">
+                        <button class="hint-btn" onclick="showHint()">💡 Need a hint?</button>
+                        <div class="hint" id="hint"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chain-display">
+                <h3>Player Chain:</h3>
+                <div class="chain" id="player-chain">
+                    <div class="chain-item start">🎯 Start Game</div>
+                </div>
+            </div>
+
+            <div class="game-controls">
+                <button class="control-btn" onclick="newGame()">🆕 New Game</button>
+                <button class="control-btn" onclick="skipPlayer()">⏭️ Skip Player</button>
+                <button class="control-btn" onclick="showRules()">📋 Rules</button>
+            </div>
+        </div>
+
+        <div class="feedback" id="feedback"></div>
+        
+        <div class="rules-modal" id="rules-modal" style="display: none;">
+            <div class="modal-content">
+                <h2>Game Rules</h2>
+                <ul>
+                    <li>🎯 You'll see a football player's name</li>
+                    <li>⚽ Guess a club that player has played for (past or present)</li>
+                    <li>✅ If correct, name another player who played for that same club</li>
+                    <li>🔄 Continue the chain as long as you can!</li>
+                    <li>💯 Points increase with longer chains</li>
+                    <li>💡 Use hints if you get stuck (reduces points)</li>
+                </ul>
+                <button onclick="hideRules()">Got it!</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="players-data.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
