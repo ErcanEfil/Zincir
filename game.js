@@ -12,6 +12,7 @@ class FootballChainGame {
         this.maxHints = 3;
         this.maxSkips = 2;
         this.isSubmitting = false;
+        this.isLoading = false;
         
         this.initializeGame();
         this.setupEventListeners();
@@ -31,8 +32,42 @@ class FootballChainGame {
         return false;
     }
 
-    initializeGame() {
+    async initializeGame() {
+        await this.loadPlayerDatabase();
         this.startNewGame();
+    }
+
+    async loadPlayerDatabase() {
+        if (this.isLoading) return;
+        
+        this.isLoading = true;
+        this.showFeedback('🔄 Oyuncu veritabanı yükleniyor...', 'info');
+        
+        try {
+            // Try to load from MongoDB via API
+            const data = await window.databaseAPI.getPlayersDatabase();
+            
+            // Update global variables for compatibility
+            window.playersDatabase = data.playersDatabase;
+            window.clubsDatabase = data.clubsDatabase;
+            
+            console.log('✅ Database loaded successfully');
+            this.clearFeedback();
+            
+        } catch (error) {
+            console.error('Error loading database:', error);
+            
+            // Fallback to local data if available
+            if (window.playersDatabase) {
+                console.log('⚠️ Using local fallback database');
+                this.showFeedback('⚠️ Yerel veritabanı kullanılıyor', 'info');
+            } else {
+                this.showFeedback('❌ Veritabanı yüklenemedi!', 'error');
+            }
+        } finally {
+            this.isLoading = false;
+            setTimeout(() => this.clearFeedback(), 2000);
+        }
     }
 
     setupEventListeners() {
@@ -43,7 +78,14 @@ class FootballChainGame {
         // Submit on Enter key
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                this.submitAnswer();
+                const activeSuggestion = document.querySelector('.suggestion-item.active');
+                if (activeSuggestion) {
+                    // Select the active suggestion
+                    this.selectSuggestion(activeSuggestion.textContent);
+                } else {
+                    // Submit the answer
+                    this.submitAnswer();
+                }
                 this.hideSuggestions();
             }
         });
@@ -52,6 +94,8 @@ class FootballChainGame {
         input.addEventListener('keydown', (e) => {
             const suggestions = document.querySelectorAll('.suggestion-item');
             const activeSuggestion = document.querySelector('.suggestion-item.active');
+            
+            if (suggestions.length === 0) return;
             
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -66,6 +110,7 @@ class FootballChainGame {
                         suggestions[0]?.classList.add('active');
                     }
                 }
+                this.scrollToActiveSuggestion();
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (!activeSuggestion) {
@@ -79,11 +124,13 @@ class FootballChainGame {
                         suggestions[suggestions.length - 1]?.classList.add('active');
                     }
                 }
+                this.scrollToActiveSuggestion();
             } else if (e.key === 'Tab' && activeSuggestion) {
                 e.preventDefault();
                 input.value = activeSuggestion.textContent;
                 this.hideSuggestions();
             } else if (e.key === 'Escape') {
+                e.preventDefault();
                 this.hideSuggestions();
             }
         });
@@ -163,15 +210,13 @@ class FootballChainGame {
 
     handleClubGuess(clubGuess) {
         const playerData = window.playersDatabase[this.currentPlayer];
-        const clubMatches = window.findClubMatches(clubGuess);
+        const normalizedGuess = this.normalizeText(clubGuess);
         
-        // Check if any of the matches are in the player's clubs
+        // Find matching club
         let correctClub = null;
-        for (const match of clubMatches) {
-            if (playerData.clubs.some(club => 
-                window.normalizeClubName(club) === window.normalizeClubName(match)
-            )) {
-                correctClub = match;
+        for (const club of playerData.clubs) {
+            if (this.normalizeText(club) === normalizedGuess) {
+                correctClub = club;
                 break;
             }
         }
@@ -193,12 +238,12 @@ class FootballChainGame {
 
     handlePlayerGuess(playerGuess) {
         // Normalize player name
-        const normalizedGuess = this.normalizePlayerName(playerGuess);
+        const normalizedGuess = this.normalizeText(playerGuess);
         let foundPlayer = null;
 
         // Find matching player
         for (const player of Object.keys(window.playersDatabase)) {
-            if (this.normalizePlayerName(player) === normalizedGuess) {
+            if (this.normalizeText(player) === normalizedGuess) {
                 foundPlayer = player;
                 break;
             }
@@ -219,9 +264,12 @@ class FootballChainGame {
 
         // Check if player played for current club
         const playerData = window.playersDatabase[foundPlayer];
-        if (!playerData.clubs.some(club => 
-            window.normalizeClubName(club) === window.normalizeClubName(this.currentClub)
-        )) {
+        const currentClubNormalized = this.normalizeText(this.currentClub);
+        const playedForClub = playerData.clubs.some(club => 
+            this.normalizeText(club) === currentClubNormalized
+        );
+
+        if (!playedForClub) {
             this.showFeedback(`❌ ${foundPlayer} hiç ${this.currentClub}'de oynamadı. Oyun bitti!`, 'error');
             this.gameOver();
             return;
@@ -248,6 +296,129 @@ class FootballChainGame {
             .replace(/[^\w\s]/g, '') // Remove special characters
             .replace(/\s+/g, ' ')    // Replace multiple spaces with single
             .trim();
+    }
+
+    normalizeText(text) {
+        return text.toLowerCase()
+            .replace(/ğ/g, 'g')
+            .replace(/ü/g, 'u')
+            .replace(/ş/g, 's')
+            .replace(/ı/g, 'i')
+            .replace(/ö/g, 'o')
+            .replace(/ç/g, 'c')
+            .replace(/[^\w\s]/g, '') // Remove special characters
+            .replace(/\s+/g, ' ')    // Replace multiple spaces with single
+            .trim();
+    }
+
+    calculateMatchScore(text, normalizedInput, originalInput) {
+        const normalizedText = this.normalizeText(text);
+        const originalText = text.toLowerCase();
+        
+        // Perfect match
+        if (normalizedText === normalizedInput) return 100;
+        if (originalText === originalInput.toLowerCase()) return 95;
+        
+        // Starts with match
+        if (normalizedText.startsWith(normalizedInput)) return 90;
+        if (originalText.startsWith(originalInput.toLowerCase())) return 85;
+        
+        // Contains match
+        if (normalizedText.includes(normalizedInput)) return 70;
+        if (originalText.includes(originalInput.toLowerCase())) return 65;
+        
+        // Word-based matching
+        const inputWords = normalizedInput.split(' ');
+        const textWords = normalizedText.split(' ');
+        const originalInputWords = originalInput.toLowerCase().split(' ');
+        const originalTextWords = originalText.split(' ');
+        
+        let wordMatches = 0;
+        let totalInputWords = inputWords.length;
+        
+        // Check normalized word matches
+        for (const inputWord of inputWords) {
+            if (inputWord.length < 2) continue;
+            for (const textWord of textWords) {
+                if (textWord.startsWith(inputWord) || textWord.includes(inputWord)) {
+                    wordMatches++;
+                    break;
+                }
+            }
+        }
+        
+        // Check original word matches
+        for (const inputWord of originalInputWords) {
+            if (inputWord.length < 2) continue;
+            for (const textWord of originalTextWords) {
+                if (textWord.startsWith(inputWord) || textWord.includes(inputWord)) {
+                    wordMatches += 0.5;
+                    break;
+                }
+            }
+        }
+        
+        if (wordMatches > 0) {
+            return Math.min(60, (wordMatches / totalInputWords) * 60);
+        }
+        
+        // Character similarity for very fuzzy matching
+        const similarity = this.calculateStringSimilarity(normalizedInput, normalizedText);
+        if (similarity > 0.3) {
+            return Math.min(40, similarity * 40);
+        }
+        
+        // If input is very short (1-2 chars), be more lenient
+        if (normalizedInput.length <= 2) {
+            if (normalizedText.includes(normalizedInput)) return 30;
+            if (originalText.includes(originalInput.toLowerCase())) return 25;
+        }
+        
+        return 0;
+    }
+
+    calculateStringSimilarity(str1, str2) {
+        const longer = str1.length > str2.length ? str1 : str2;
+        const shorter = str1.length > str2.length ? str2 : str1;
+        
+        if (longer.length === 0) return 1.0;
+        
+        const editDistance = this.calculateEditDistance(longer, shorter);
+        return (longer.length - editDistance) / longer.length;
+    }
+
+    calculateEditDistance(str1, str2) {
+        const matrix = [];
+        
+        for (let i = 0; i <= str2.length; i++) {
+            matrix[i] = [i];
+        }
+        
+        for (let j = 0; j <= str1.length; j++) {
+            matrix[0][j] = j;
+        }
+        
+        for (let i = 1; i <= str2.length; i++) {
+            for (let j = 1; j <= str1.length; j++) {
+                if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1,
+                        matrix[i][j - 1] + 1,
+                        matrix[i - 1][j] + 1
+                    );
+                }
+            }
+        }
+        
+        return matrix[str2.length][str1.length];
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     addToChain(value, type) {
@@ -404,28 +575,98 @@ class FootballChainGame {
 
     showSuggestions(inputValue) {
         const suggestionsDiv = document.getElementById('suggestions');
-        const trimmedInput = inputValue.trim().toLowerCase();
+        const trimmedInput = inputValue.trim();
         
-        if (trimmedInput.length < 2) {
+        if (trimmedInput.length < 1) { // Reduced from 2 to 1 for more suggestions
+            this.hideSuggestions();
+            return;
+        }
+
+        // Check if databases are loaded
+        if (!window.playersDatabase || !window.clubsDatabase) {
             this.hideSuggestions();
             return;
         }
 
         let suggestions = [];
+        const normalizedInput = this.normalizeText(trimmedInput);
         
         if (this.gamePhase === 'club') {
-            // Show club suggestions
-            suggestions = Object.keys(window.clubsDatabase).filter(club =>
-                club.toLowerCase().includes(trimmedInput)
-            ).slice(0, 8); // Limit to 8 suggestions
+            // Show club suggestions - search in all clubs from playersDatabase
+            const allClubs = new Set();
+            Object.values(window.playersDatabase).forEach(player => {
+                player.clubs.forEach(club => allClubs.add(club));
+            });
+            
+            suggestions = Array.from(allClubs)
+                .map(club => ({
+                    text: club,
+                    score: this.calculateMatchScore(club, normalizedInput, trimmedInput)
+                }))
+                .filter(item => item.score > 0) // Show any match, even partial
+                .sort((a, b) => {
+                    // Sort by match score (higher is better)
+                    if (a.score !== b.score) return b.score - a.score;
+                    return a.text.localeCompare(b.text, 'tr', { sensitivity: 'base' });
+                })
+                .slice(0, 8)
+                .map(item => item.text);
+                
         } else {
             // Show player suggestions from current club
+            if (!this.currentClub || !window.clubsDatabase[this.currentClub]) {
+                this.hideSuggestions();
+                return;
+            }
+            
             const playersInClub = window.clubsDatabase[this.currentClub] || [];
-            const availablePlayers = playersInClub.filter(player => 
-                !this.chain.some(item => item.value === player && item.type === 'player') &&
-                player.toLowerCase().includes(trimmedInput)
-            );
-            suggestions = availablePlayers.slice(0, 8);
+            const availablePlayers = playersInClub.filter(player => {
+                const isAlreadyUsed = this.chain.some(item => 
+                    item.value === player && item.type === 'player'
+                );
+                return !isAlreadyUsed;
+            });
+            
+            suggestions = availablePlayers
+                .map(player => ({
+                    text: player,
+                    score: this.calculateMatchScore(player, normalizedInput, trimmedInput)
+                }))
+                .filter(item => item.score > 0) // Show any match, even partial
+                .sort((a, b) => {
+                    // Sort by match score (higher is better)
+                    if (a.score !== b.score) return b.score - a.score;
+                    return a.text.localeCompare(b.text, 'tr', { sensitivity: 'base' });
+                })
+                .slice(0, 8)
+                .map(item => item.text);
+        }
+
+        if (suggestions.length === 0) {
+            // Even if no matches, show some random suggestions to help user
+            if (this.gamePhase === 'club') {
+                const allClubs = new Set();
+                Object.values(window.playersDatabase).forEach(player => {
+                    player.clubs.forEach(club => allClubs.add(club));
+                });
+                const randomClubs = Array.from(allClubs)
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, 5);
+                if (randomClubs.length > 0) {
+                    suggestions = randomClubs;
+                }
+            } else if (this.currentClub && window.clubsDatabase[this.currentClub]) {
+                const playersInClub = window.clubsDatabase[this.currentClub] || [];
+                const availablePlayers = playersInClub.filter(player => 
+                    !this.chain.some(item => item.value === player && item.type === 'player')
+                );
+                const randomPlayers = availablePlayers
+                    .sort(() => Math.random() - 0.5)
+                    .slice(0, 5);
+                if (randomPlayers.length > 0) {
+                    suggestions = randomPlayers;
+                }
+            }
         }
 
         if (suggestions.length === 0) {
@@ -433,9 +674,19 @@ class FootballChainGame {
             return;
         }
 
-        suggestionsDiv.innerHTML = suggestions.map(suggestion => 
-            `<div class="suggestion-item" onclick="game.selectSuggestion('${suggestion}')">${suggestion}</div>`
-        ).join('');
+        // Create suggestions with proper HTML escaping and improved onclick handling
+        suggestionsDiv.innerHTML = suggestions.map(suggestion => {
+            const escapedSuggestion = this.escapeHtml(suggestion);
+            return `<div class="suggestion-item" data-suggestion="${escapedSuggestion}">${escapedSuggestion}</div>`;
+        }).join('');
+        
+        // Add click listeners to suggestion items
+        const suggestionItems = suggestionsDiv.querySelectorAll('.suggestion-item');
+        suggestionItems.forEach(item => {
+            item.addEventListener('click', () => {
+                this.selectSuggestion(item.dataset.suggestion);
+            });
+        });
         
         suggestionsDiv.style.display = 'block';
     }
@@ -451,6 +702,16 @@ class FootballChainGame {
         input.value = suggestion;
         this.hideSuggestions();
         input.focus();
+    }
+
+    scrollToActiveSuggestion() {
+        const activeSuggestion = document.querySelector('.suggestion-item.active');
+        if (activeSuggestion) {
+            activeSuggestion.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest'
+            });
+        }
     }
 
     clearInput() {
